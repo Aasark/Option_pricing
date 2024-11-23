@@ -1,78 +1,210 @@
+# Installing necessary libraries
 import streamlit as st
 import numpy as np
 import math
 from statistics import NormalDist
 import matplotlib.pyplot as plt
 
+# Parent Class
 class Asset:
-    """Base class representing an asset."""
+    """
+    Represents a financial asset (we assume it is a stock).
+
+    Attributes:
+        name (str): The name of the asset.
+        current_price (float): The current market price of the asset.
+        dividend_yield (float): The annual dividend yield of the asset as a decimal (default is 0).
+    """
+
     def __init__(self, name, current_price, *, dividend_yield=0):
+        """
+        Initializes an Asset instance.
+
+        Args:
+            name (str): The name of the asset. Must be a non-empty string.
+            current_price (float): The current market price of the asset. Must be a positive number.
+            dividend_yield (float, optional): The dividend yield as a decimal (e.g., 0.02 for 2%). Must be non-negative. Defaults to 0.
+
+        Raises:
+            ValueError: If the `name` is not a non-empty string.
+            ValueError: If `current_price` is not a positive number.
+            ValueError: If `dividend_yield` is negative.
+        """
+        # name of the asset must be non-empty string
         if not isinstance(name, str) or not name:
             raise ValueError("Name must be a non-empty string.")
+        
+        # current price must be positive
         if not isinstance(current_price, (int, float)) or current_price <= 0:
             raise ValueError("Current price must be a positive number.")
+        
+        # dividend yield must be non-negative
         if not isinstance(dividend_yield, (int, float)) or dividend_yield < 0:
             raise ValueError("Dividend yield must be a non-negative number.")
 
-        self.name = name
-        self.current_price = current_price
-        self.dividend_yield = dividend_yield
-
+        # Set the instance attributes
+        self.name = name  
+        self.current_price = current_price  
+        self.dividend_yield = dividend_yield  
 
 class BlackScholesAsset(Asset):
-    """Implements Black-Scholes model for asset price simulation."""
+    """
+    Uses Black Scholes equation to price an asset.
+
+    Inherits from the parent class Asset and adds functionality for simulating asset price paths
+    based on the Black-Scholes model.
+
+    Attributes:
+        volatility (float): The volatility of the asset as a decimal.
+    """
+
     def __init__(self, name, current_price, *, dividend_yield=0, volatility):
+        """
+        Initializes a BlackScholesAsset class instance.
+
+        Args:
+            name (str): The name of the asset. Must be a non-empty string.
+            current_price (float): The current market price of the asset. Must be a positive number.
+            dividend_yield (float, optional): The dividend yield as a decimal. Must be non-negative. Defaults to 0.
+            volatility (float): The volatility of the asset. Must be a positive number.
+
+        Raises:
+            ValueError: If the `volatility` is not a positive number.
+        """
+        # Initializing the parent Asset class
         super().__init__(name, current_price, dividend_yield=dividend_yield)
+
         if not isinstance(volatility, (int, float)) or volatility <= 0:
             raise ValueError("Volatility must be a positive number.")
+        
+        # Set the volatility attribute
         self.volatility = volatility
 
     def simulate_path(self, simulated_times, interest_rate, *, current_price=None):
+        """
+        Simulates the price path of the asset over specified times using the Black-Scholes model.
+
+        Args:
+            simulated_times (list of float): A list of times (in years) at which to simulate prices.
+            interest_rate (float): The risk-free interest rate as a decimal.
+            current_price (float, optional): The starting price for the simulation. Defaults to the current_price of the asset.
+
+        Returns:
+            dict: A dictionary where keys are times and values are simulated prices.
+        """
+        # Use the asset's current price if no custom starting price is provided
         if current_price is None:
             current_price = self.current_price
 
+        # Calculate time intervals (dt) between consecutive simulation times
         dt = np.diff([0] + simulated_times)
+
+        # Initialize the list of simulated prices, starting with the initial price
         prices = [current_price]
 
+        # Loop through each time step to simulate the price using the Black-Scholes formula
         for i, t in enumerate(simulated_times):
+            # Calculate the drift term based on interest rate, dividend yield, and volatility
             drift = (interest_rate - self.dividend_yield - 0.5 * self.volatility**2) * dt[i]
+
+            # Calculate the diffusion term using a random normal variable
             diffusion = self.volatility * np.random.normal(0, math.sqrt(dt[i]))
+
+            # Calculate the new price
             new_price = prices[-1] * math.exp(drift + diffusion)
+
+            # Append the new price to the list of simulated prices
             prices.append(new_price)
 
+        # Return a dictionary of times and their corresponding simulated prices
         return {t: price for t, price in zip([0] + simulated_times, prices)}
 
     def _dst_ds0(self, path, time):
+        """
+        Calculates the sensitivity of the price at a specific time to the initial price.
+
+        Args:
+            path (dict): A dictionary of simulated prices where keys are times and values are prices.
+            time (float): The specific time at which to calculate the sensitivity.
+
+        Returns:
+            float: The sensitivity (price at `time` / initial price).
+        """
+        # Retrieve the initial price from the path
         initial_price = path[0]
+
+        # Calculate and return the sensitivity
         return path[time] / initial_price
 
-
 class Option:
-    """Base class for options."""
+    """
+    Represents a standard option contract that derives its value from an underlying asset.
+    Subclasses are used to implement specific option types, such as European or Asian options.
+
+    Attributes:
+        name (str): The name of the option.("Call" or "Put").
+        underlying (Asset): The asset that underlies the option (Will be an instance of another class).
+    """
+
     def __init__(self, name, underlying):
+        """
+        Args:
+            name (str): The name of the option. Must be a non-empty string.
+            underlying (Asset): The underlying asset of the option. Must be an instance of the Asset class.
+
+        Raises:
+            ValueError: If `name` is not a non-empty string.
+            ValueError: If `underlying` is not an instance of the Asset class.
+        """
         if not isinstance(name, str) or not name:
             raise ValueError("Name must be a non-empty string.")
+
         if not isinstance(underlying, Asset):
             raise ValueError("Underlying must be an Asset instance.")
 
-        self.name = name
-        self.underlying = underlying
+        self.name = name  
+        self.underlying = underlying 
 
     def monte_carlo_delta(self, simulations, *, confidence_level=0.95, interest_rate):
+        """
+        Estimates the delta of the option using Monte Carlo simulation.
+        This function generates simulated price paths for the underlying asset and calculates the delta for each path.
+
+        Args:
+            simulations (int): The number of Monte Carlo simulations to run.
+            confidence_level (float, optional): The confidence level for the delta estimate (e.g., 0.95 for 95%). Defaults to 0.95.
+            interest_rate (float): The risk-free interest rate as a decimal (e.g., 0.05 for 5% annual rate).
+
+        Returns:
+            tuple: A 3-tuple containing the lower bound, mean, and upper bound of the delta confidence interval.
+
+        Raises:
+            AttributeError: If `monitoring_times` or `_path_delta` is not implemented in a subclass.
+        """
+        # List to store calculated deltas from each simulation
         monte_deltas = []
 
+        # Perform Monte Carlo simulations
         for _ in range(simulations):
+            # Simulate a price path for the underlying asset
             path = self.underlying.simulate_path(self.monitoring_times, interest_rate)
+
+            # Calculate the delta for the simulated path
             delta = self._path_delta(path, interest_rate)
+
+            # Append the delta to the list
             monte_deltas.append(delta)
 
+        # Calculate the mean and standard deviation of the deltas
         mean_delta = np.mean(monte_deltas)
         std_delta = np.std(monte_deltas, ddof=1)
-        z = NormalDist().inv_cdf((1 + confidence_level) / 2)
-        margin = z * std_delta / math.sqrt(simulations)
 
+        # Compute the confidence interval
+        z = NormalDist().inv_cdf((1 + confidence_level) / 2)  # Z-score for the confidence level
+        margin = z * std_delta / math.sqrt(simulations)  # Margin of error
+
+        # Return the confidence interval as a tuple
         return mean_delta - margin, mean_delta, mean_delta + margin
-
 
 class AsianOption(Option):
     """Specialized class for Asian options."""
@@ -98,14 +230,6 @@ class AsianOption(Option):
         discounted_payoff = payoff * math.exp(-interest_rate * self.monitoring_times[-1])
         return deltas[-1] * discounted_payoff
 
-
-import streamlit as st
-import numpy as np
-import math
-from statistics import NormalDist
-import matplotlib.pyplot as plt
-
-# Define Asset, BlackScholesAsset, Option, and AsianOption classes (no changes from your code)
 
 st.title("Floating Price Asian Option Calculator")
 
