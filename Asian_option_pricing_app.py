@@ -4,6 +4,7 @@ import numpy as np
 import math
 from statistics import NormalDist
 import matplotlib.pyplot as plt
+import pandas as pd
 
 # Parent Class
 class Asset:
@@ -182,10 +183,12 @@ class Option:
             AttributeError: If `monitoring_times` or `_path_delta` is not implemented in a subclass.
         """
         # List to store calculated deltas from each simulation
+        progress_bar = st.progress(0)
+        progress_text = st.empty()
         monte_deltas = []
 
         # Perform Monte Carlo simulations
-        for _ in range(simulations):
+        for i in range(simulations):
             # Simulate a price path for the underlying asset
             path = self.underlying.simulate_path(self.monitoring_times, interest_rate)
 
@@ -194,6 +197,11 @@ class Option:
 
             # Append the delta to the list
             monte_deltas.append(delta)
+
+            # Update the progress bar
+            progress_percentage = int((i + 1)/simulations * 100)
+            progress_bar.progress((i + 1)/simulations)
+            progress_text.text(f"Progress... {progress_percentage}%")
 
         # Calculate the mean and standard deviation of the deltas
         mean_delta = np.mean(monte_deltas)
@@ -260,6 +268,39 @@ except ValueError:
 r = st.sidebar.number_input("Risk-Free Rate (r)", value=0.05, step=0.01)
 n_simulations = st.sidebar.number_input("Number of Simulations", value=10000, step=1000)
 
+# Displaing Input variables & Link to Asian Option
+st.markdown(
+    """
+    <div style="display: flex; justify-content: center; align-items: center; margin-top: 10px;">
+        <h3 style="margin: 0; padding-right: 10px;">Input Variables</h3>
+        <a href="https://www.investopedia.com/terms/a/asianoption.asp" target="_blank" style="text-decoration: none;">
+            <button style="background-color: #4CAF50; border: none; color: white; padding: 10px 20px; text-align: center; font-size: 16px; cursor: pointer;">
+                What is an Asian Option?
+            </button>
+        </a>
+    </div>
+    """,
+    unsafe_allow_html=True
+)
+
+# Make a dictionary to store all input variables
+parameters = {
+    "Stock Name": name,
+    "Current Stock Price (S₀)": current_price,
+    "Initial Purchase Price of Option": initial_purchase_price,
+    "Dividend Yield": dividend_yield,
+    "Volatility (σ)": volatility,
+    "Option Type": option_type,
+    "Strike Factor": strike_factor,
+    "Monitoring Times": monitoring_times_input,
+    "Risk-Free Rate (r)": r,
+    "Number of Simulations": int(n_simulations),
+}
+parameters_df = pd.DataFrame.from_dict(parameters, orient="index", columns=["Value"])
+
+# Display the table of input variables
+st.table(parameters_df)
+
 if st.sidebar.button("Calculate Confidence Interval"):
     try:
         asset = BlackScholesAsset(
@@ -282,7 +323,11 @@ if st.sidebar.button("Calculate Confidence Interval"):
             confidence_level=0.95,
             interest_rate=r,
         )
-        st.write(f"Monte Carlo Delta Confidence Interval: {confidence_interval}")
+        st.markdown("## Monte Carlo Based Delta Confidence Interval")
+        st.write(f"Lower Bound: **{confidence_interval[0]:.4f}**")
+        st.write(f"Mean: **{confidence_interval[1]:.4f}**")
+        st.write(f"Upper Bound: **{confidence_interval[2]:.4f}**")
+        st.write("**Calculation Complete!!!**")
     except Exception as e:
         st.error(f"Error during calculation: {e}")
 
@@ -315,12 +360,34 @@ if st.sidebar.button("Plot Payoff"):
             np.mean(payoffs) * math.exp(-r * time) for time in monitoring_times
         ]
 
+        
         fig, ax = plt.subplots()
-        ax.plot(monitoring_times, discounted_payoffs, label="Discounted Payoff")
+        # We need to convert List to numpy array for plotting
+        discounted_payoffs = np.array(discounted_payoffs)
+
+        x_ticks = np.array(monitoring_times)
+
+        # discounted payoffs
+        ax.plot(monitoring_times, discounted_payoffs, label="Discounted Payoff", color="blue")
+
+        # Horizontal line for the initial purchase price
         ax.axhline(y=initial_purchase_price, color='r', linestyle='--', label="Initial Purchase Price")
+
+        ax.fill_between(
+            x_ticks, initial_purchase_price, discounted_payoffs,
+            where=(discounted_payoffs > initial_purchase_price),
+            facecolor='green', alpha=0.3, label="Profit Zone"
+        )
+
+        ax.fill_between(
+            x_ticks, initial_purchase_price, discounted_payoffs,
+            where=(discounted_payoffs < initial_purchase_price),
+            facecolor='red', alpha=0.3, label="Loss Zone"
+        )
+
         ax.set_xlabel("Monitoring Time")
         ax.set_ylabel("Payoff")
-        ax.set_title("Payoff vs. Monitoring Time")
+        ax.set_title("Payoff of the Asian Option")
         ax.legend()
 
         st.pyplot(fig)
